@@ -31,11 +31,12 @@ public class AudioClassifier extends BaseAudioClassifier{
         }
     }
     @Override
-    public float[] classify(float[] audioData) {
+    public float[] classify(short[] audioData) {
 
         float[][] expandedAudioData = new float[1][audioData.length];
+
         for (int i = 0; i < audioData.length; i++) {
-            expandedAudioData[0][i] = audioData[i];
+            expandedAudioData[0][i] = audioData[i] / 32767.0f;
         }
         float[][] outputBuffer = new float[1][1];
 

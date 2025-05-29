@@ -33,6 +33,7 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
@@ -40,16 +41,19 @@ import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity {
     private Button btnRecording;
+    private Button btnSave;
     private static final int SAMPLING_RATE_IN_HZ = 16000;
+    private static final int CHANNEL_CONF16= AudioFormat.CHANNEL_IN_MONO;
+    private static final int AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT;
+    private static final int RECORD_DURATIONS_MS=2000; //record 2 sec
+    private static final int BUFFER_SIZE = AudioRecord.getMinBufferSize(SAMPLING_RATE_IN_HZ, CHANNEL_CONF16, AUDIO_FORMAT);
+    private boolean isRecording=false;
+    private short[] audioBuffer;
     private AudioRecord audioRecord = null;
     private FileOutputStream fos;
     private static final int REQUEST_CODE_AUDIO_PERMISSION = 100;
-    private boolean permissionToRecordAccepted = false;
     private String [] permissions = {Manifest.permission.RECORD_AUDIO};
     AudioClassifier audioClassifier;
-    ByteBuffer byteBuffer = ByteBuffer.allocate(SAMPLING_RATE_IN_HZ);
-    float [] audioBuffer = new float[SAMPLING_RATE_IN_HZ*2]; // 16bit, 2초
-    private boolean isFirst=true;
     private void requestAudioPermission() {
         // 권한이 이미 부여되었는지 확인
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
@@ -67,72 +71,35 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private void initViews(){
+        btnRecording = findViewById(R.id.btn_recording);
+        btnSave = findViewById(R.id.btn_save);
+        btnSave.setEnabled(false);
+    }
+
+    @RequiresPermission(Manifest.permission.RECORD_AUDIO)
+    private void setupClickListeners(){
+        btnRecording.setOnClickListener(v->{
+            if(!isRecording){
+                startRecording();
+            }else{
+                stopRecording();
+            }
+        });
+        btnSave.setOnClickListener(v->{
+            savePCMFILE();
+        });
+    }
+
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     @Override
     public void onCreate(Bundle icicle) {
         super.onCreate(icicle);
         setContentView(R.layout.activity_main);
+        initViews();
         requestAudioPermission();
-        btnRecording = findViewById(R.id.btn_recording);
+        setupClickListeners();
         audioClassifier = new AudioClassifier(this);
-        btnRecording.setOnClickListener(v->{
-//            if(v.getTag().toString().equals("stop")){
-//                startRecording(); // 2초가 지난 뒤에는 stop recording 해야됨
-//            }
-//            else {
-//                stopRecording();
-//            }
-            File audioFile = createNewAudioFile();
-            try {
-                fos = new FileOutputStream(audioFile);
-            } catch (FileNotFoundException e) {
-                throw new RuntimeException(e);
-            }
-            new CountDownTimer(2000, 1000) { // 2초 (2000ms) 동안, 1초마다 업데이트
-                @RequiresPermission(Manifest.permission.RECORD_AUDIO)
-                public void onTick(long millisUntilFinished) {
-                    // 매 1초마다 실행될 코드 (예: UI 업데이트)
-                    // millisUntilFinished: 남은 시간 (밀리초)
-
-                    startRecording();
-                    byteBuffer.rewind();
-                    if(isFirst) {
-                        for (int i = 0; i < SAMPLING_RATE_IN_HZ; i++) {
-                                audioBuffer[i] = byteBuffer.get();
-//                            }
-                        }
-                        isFirst=false;
-                    }else {
-                        for(int i=0; i<SAMPLING_RATE_IN_HZ; i++)
-                            audioBuffer[SAMPLING_RATE_IN_HZ+i] = byteBuffer.get();
-                    }
-
-                    byteBuffer.rewind(); // byteBuffer 16000Hz
-
-                }
-
-                public void onFinish() {
-                    // 2초가 지났을 때 실행될 코드
-                    stopRecording();
-                    // TODO: classifying the wake word(marusys).
-//                    float [] audioBuffer = new float[SAMPLING_RATE_IN_HZ*2];
-                    byteBuffer.rewind();
-//
-//                    for(int i=0; i<SAMPLING_RATE_IN_HZ*2; i++){
-//                        byte b = byteBuffer.get();
-//                        audioBuffer[i] = b;
-//                    }
-//                    float [] answer= audioClassifier.classify(audioBuffer);
-
-//                    if(answer[0] > 0.5){
-//                        Toast.makeText(MainActivity.this, String.valueOf(answer[0] * 100) +"확률, marusys 인식", Toast.LENGTH_SHORT).show();
-//                    }else{
-//                        Toast.makeText(MainActivity.this, String.valueOf(answer[0] * 100) +"확률, 인식X", Toast.LENGTH_SHORT).show();
-//                    }
-
-                }
-            }.start();
-        });
     }
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     @Override
@@ -157,74 +124,91 @@ public class MainActivity extends AppCompatActivity {
     }
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     private void startRecording(){
-        int minimumBufferSize = AudioRecord.getMinBufferSize(SAMPLING_RATE_IN_HZ, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_8BIT);
-        if(minimumBufferSize < AudioRecord.SUCCESS) {
-            Toast.makeText(this, "잘못된 크기: " + minimumBufferSize, Toast.LENGTH_SHORT).show();
-            return;
-        }
+        try{
+            audioRecord = new AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                    SAMPLING_RATE_IN_HZ,
+                    CHANNEL_CONF16,
+                    AUDIO_FORMAT,
+                    BUFFER_SIZE
+            );
+            int totalSamples = SAMPLING_RATE_IN_HZ * RECORD_DURATIONS_MS / 1000; // record 2sec
+            audioBuffer = new short[totalSamples];
 
-        audioRecord = new AudioRecord(MediaRecorder.AudioSource.MIC, SAMPLING_RATE_IN_HZ, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_8BIT, minimumBufferSize);
-        if(audioRecord.getState() == AudioRecord.STATE_INITIALIZED){
-            btnRecording.setText("인식중");
-            btnRecording.setTag("recording");
+            btnRecording.setText("recoding");
+            btnRecording.setEnabled(false);
 
-            ExecutorService service = Executors.newSingleThreadExecutor();
-            service.execute(new Runnable() {
-                @Override
-                public void run() {
-                    byte[] buffer = new byte[minimumBufferSize];
+            audioRecord.startRecording();
+            isRecording= true;
+            btnRecording.setText("recoding");
+            btnRecording.setEnabled(false);
 
-                    try {
-                        audioRecord.startRecording();
-                        byteBuffer.rewind();
-                        Log.i("test1", String.valueOf(byteBuffer.position()));
-                        while (byteBuffer.position()+minimumBufferSize < SAMPLING_RATE_IN_HZ){
-                            audioRecord.read(buffer, 0, minimumBufferSize);
-                            byteBuffer.put(buffer, 0, minimumBufferSize);
-                            fos.write(buffer);
-                            Log.i("test2", String.valueOf(byteBuffer.position()));
-                        }
-                        int mod = SAMPLING_RATE_IN_HZ - byteBuffer.position();
-                        buffer = new byte[mod];
-                        audioRecord.read(buffer, 0, mod);
-                        byteBuffer.put(buffer, 0, mod);
-                        fos.write(buffer);
-                        Log.i("test3", String.valueOf(byteBuffer.position()));
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                        stopRecording();
+            new Thread(() ->{
+                int samplesRead =0;
+                short[] buffer = new short[BUFFER_SIZE];
+
+                while(isRecording && (samplesRead < totalSamples)){
+                    int read = audioRecord.read(buffer, 0, Math.min(buffer.length, totalSamples - samplesRead));
+                    if(read>0){
+                        System.arraycopy(buffer, 0, audioBuffer, samplesRead, read);
+                        samplesRead+=read;
                     }
+                    Log.i("LOG_TAG", String.valueOf(isRecording) + " " + String.valueOf(samplesRead));
                 }
-            });
-        }
-        else{
-            Toast.makeText(this, "잘못된 상태:" + audioRecord.getState(), Toast.LENGTH_SHORT).show();
-            stopRecording();
+                runOnUiThread(()->{
+                    stopRecording();
+                });
+
+
+            }).start();
+
+        }catch (Exception e){
+            Toast.makeText(this, "record failed "+e.getMessage(), Toast.LENGTH_SHORT).show();
+            e.printStackTrace();
         }
     }
-    private File createNewAudioFile(){
+    private void savePCMFILE(){
         String path = Environment.getExternalStorageDirectory().toString() + "/Download/";
-        String fileName = "AUDIO_222" + System.currentTimeMillis();
-        return new File(path, fileName + ".pcm");
+        String fileName = "AUDIO_" + System.currentTimeMillis();
+        try {
+            File file = new File(path, fileName+".pcm");
+            FileOutputStream fos = new FileOutputStream(file);
+            ByteBuffer byteBuffer = ByteBuffer.allocate(audioBuffer.length * 2);
+            byteBuffer.order(ByteOrder.LITTLE_ENDIAN);
+            Log.i("LOg", String.valueOf(audioBuffer.length));
+            for(short sample: audioBuffer){
+                byteBuffer.putShort(sample);
+            }
+            Toast.makeText(this, "PCM file is saved successfully", Toast.LENGTH_SHORT).show();
+            fos.write(byteBuffer.array());
+            fos.close();
+        } catch (FileNotFoundException e) {
+            Toast.makeText(this, "file path doesn't exist", Toast.LENGTH_SHORT).show();
+            e.printStackTrace();
+        } catch (IOException e) {
+            Toast.makeText(this, "PCM file isn't saved", Toast.LENGTH_SHORT).show();
+            e.printStackTrace();
+        }
     }
 
     private void stopRecording(){
-        byteBuffer.position(0);
+//        byteBuffer.position(0);
 
+        float [] answer= audioClassifier.classify(audioBuffer);
+        if(answer[0] > 0.5){
+            Toast.makeText(MainActivity.this, String.valueOf(answer[0] * 100) +"확률, marusys 인식", Toast.LENGTH_SHORT).show();
+        }else{
+            Toast.makeText(MainActivity.this, String.valueOf(answer[0] * 100) +"확률, 인식X", Toast.LENGTH_SHORT).show();
+        }
         btnRecording.setTag("stop");
-        btnRecording.setText("녹음");
         if(audioRecord!=null && audioRecord.getState() != AudioRecord.STATE_UNINITIALIZED){
             audioRecord.stop();
             audioRecord.release();
             audioRecord = null;
         }
-        if(fos != null){
-            try {
-                fos.close();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-            fos = null;
-        }
+        isRecording=false;
+        btnRecording.setText("recoding start");
+        btnRecording.setEnabled(true);
+        btnSave.setEnabled(true);
     }
 }

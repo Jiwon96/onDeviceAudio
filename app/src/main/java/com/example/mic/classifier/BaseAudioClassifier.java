@@ -7,7 +7,7 @@ public abstract class BaseAudioClassifier {
 
     public BaseAudioClassifier(Context context) {this.context=context;}
 
-    public abstract float[] classify(float[] audioData);
+    public abstract float[] classify(short[] audioData);
 
     public String getLabel(float[] result){
         return "unsupported";
