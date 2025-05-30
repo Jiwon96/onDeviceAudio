@@ -1,6 +1,8 @@
 package com.example.mic;
 import android.Manifest;
+import android.app.AlertDialog;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.media.AudioFormat;
@@ -27,6 +29,7 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 import com.example.mic.classifier.AudioClassifier;
+import com.google.android.material.snackbar.Snackbar;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -54,6 +57,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQUEST_CODE_AUDIO_PERMISSION = 100;
     private String [] permissions = {Manifest.permission.RECORD_AUDIO};
     AudioClassifier audioClassifier;
+    private String savepath;
     private void requestAudioPermission() {
         // 권한이 이미 부여되었는지 확인
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
@@ -87,7 +91,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
         btnSave.setOnClickListener(v->{
-            savePCMFILE();
+            saveFile();
         });
     }
 
@@ -167,11 +171,56 @@ public class MainActivity extends AppCompatActivity {
             e.printStackTrace();
         }
     }
-    private void savePCMFILE(){
-        String path = Environment.getExternalStorageDirectory().toString() + "/Download/";
+
+    private interface DialogCallback{
+        void onResult(String result);
+    }
+
+    private void showAlertDialog(Context context, DialogCallback callback){
+        new AlertDialog.Builder(this).setMessage("마르시스를 말하셨습니까?")
+                .setPositiveButton("예", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        callback.onResult("true");
+                        dialog.dismiss();
+                    }
+                })
+                .setNegativeButton("아니오", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        callback.onResult("false");
+                        dialog.dismiss();
+                    }
+                }).show();
+    }
+
+    private void saveFile(){
+        showAlertDialog(this, new DialogCallback() {
+            @Override
+            public void onResult(String result) {
+                savePCMFILE(result);
+            }
+        });
+    }
+
+    private void savePCMFILE(String label){
+        savepath = Environment.getExternalStorageDirectory().toString() + "/Download/"+label;
+        File Folder = new File(savepath);
+        if(!Folder.exists()){
+            try {
+                Folder.mkdir();
+            }catch(Exception e){
+                e.getStackTrace();
+                Log.i("Folder", "생성 에러");
+            }
+        }else{
+            Log.i("Folder", "이미 존재");
+        }
+
         String fileName = "AUDIO_" + System.currentTimeMillis();
+
         try {
-            File file = new File(path, fileName+".pcm");
+            File file = new File(savepath, fileName+".pcm");
             FileOutputStream fos = new FileOutputStream(file);
             ByteBuffer byteBuffer = ByteBuffer.allocate(audioBuffer.length * 2);
             byteBuffer.order(ByteOrder.LITTLE_ENDIAN);
@@ -196,7 +245,7 @@ public class MainActivity extends AppCompatActivity {
 
         float [] answer= audioClassifier.classify(audioBuffer);
         if(answer[0] > 0.5){
-            Toast.makeText(MainActivity.this, String.valueOf(answer[0] * 100) +"확률, marusys 인식", Toast.LENGTH_SHORT).show();
+            Toast.makeText(MainActivity.this, String.valueOf(answer[0] * 100) +"확률, label 인식", Toast.LENGTH_SHORT).show();
         }else{
             Toast.makeText(MainActivity.this, String.valueOf(answer[0] * 100) +"확률, 인식X", Toast.LENGTH_SHORT).show();
         }

@@ -12,7 +12,7 @@ import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 
 public class AudioClassifier extends BaseAudioClassifier{
-    private static final String MODEL_FILE = "trigger_word_detection_model_largeDataSet_MelIntoLayer_sr16000_B16_lr5e-4_pat20.tflite";
+    private static final String MODEL_FILE = "trigger_word_detection_model_largeDataSet_MelIntoLayer_sr16000_B32_lr5e-4_pat20.tflite";
     private Interpreter tflite;
     private int inputHeight;
     private int inputWidth;
